@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Volleyball Hitting Analyzer</title>
+<link rel="stylesheet" href="app/styles.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#ffc83d" stroke-width="1.6" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 2c2.5 3 3 7 1 10M2.6 9.5c3.8-1 7.8.2 9.4 2.5M12 12c-1 3.6-4 6.3-7.7 7M12 12c3.7.2 7 2.4 8.6 5.6M21.4 9c-3 .2-6.4 1.3-9.4 3"/></svg>
+    <span>Hitting Analyzer</span>
+  </div>
+  <div class="file-name" id="fileName">No video loaded</div>
+  <div class="top-actions">
+    <button class="btn primary" id="btnOpen" title="Open a video (or drag it onto the player)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h11l5 5v9a1 1 0 0 1-1 1H4z"/><path d="M10 10l5 3-5 3z" fill="currentColor"/></svg><span>Open video</span></button>
+    <button class="btn" id="btnSave" disabled title="Save this analysis so you can reopen it later">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3h11l3 3v15H5z"/><path d="M8 3v5h8V3M8 21v-7h8v7"/></svg><span>Save</span></button>
+    <button class="btn" id="btnLoad" title="Open a saved analysis">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h6l2 2h10v10H3z"/></svg><span>Open analysis</span></button>
+    <button class="btn" id="btnCsv" disabled title="Export metrics and per-frame data as CSV (opens in Excel)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4zM4 10h16M4 15h16M10 4v16"/></svg><span>CSV</span></button>
+    <button class="btn" id="btnSnap" disabled title="Save the current frame with overlays as a PNG">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg><span>Snapshot</span></button>
+  </div>
+  <input type="file" id="videoInput" accept="video/*,.mov,.mp4,.m4v" hidden>
+  <input type="file" id="analysisInput" accept=".json,application/json" hidden>
+  <input type="file" id="modelInput" accept=".task" hidden>
+</header>
+
+<main class="layout">
+  <section class="stage-col">
+    <div class="stage" id="stage">
+      <video id="srcVideo" muted playsinline preload="auto"></video>
+      <canvas id="view"></canvas>
+      <div class="drop-hint" id="dropHint">
+        <h1>Drop a hitting video here</h1>
+        <div>or use <b>Open video</b>. Everything stays on this computer.</div>
+        <div class="tips">
+          <div class="tip"><b>Side view</b>Tripod, roughly at right angles to the approach, whole body and ball in frame.</div>
+          <div class="tip"><b>Slow-mo if you can</b>120 or 240 fps makes ball speed and timing far more accurate.</div>
+          <div class="tip"><b>iPhone tip</b>If a video won't play: Settings → Camera → Formats → <i>Most Compatible</i>.</div>
+        </div>
+      </div>
+      <div class="mode-banner" id="modeBanner" hidden></div>
+      <div class="zoom-chip" id="zoomChip" hidden></div>
+      <div class="busy" id="busy" hidden>
+        <div class="busy-card">
+          <div class="busy-title" id="busyTitle">Working…</div>
+          <div class="progress"><div id="busyBar"></div></div>
+          <div class="busy-sub" id="busySub"></div>
+          <div class="row"><button class="btn" id="busyCancel">Cancel</button></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="transport">
+      <button class="btn icon" id="bFirst" title="First frame (Home)"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zM20 5v14l-10-7z"/></svg></button>
+      <button class="btn icon" id="bBack10" title="Back 10 frames (Shift+←)"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 5v14L3 12zM21 5v14l-9-7z"/></svg></button>
+      <button class="btn icon" id="bBack1" title="Back 1 frame (←)"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 5h2v14H7zM19 5v14l-9-7z"/></svg></button>
+      <button class="btn icon primary" id="bPlay" title="Play / pause (Space)"><svg id="icPlay" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4l13 8-13 8z"/></svg><svg id="icPause" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg></button>
+      <button class="btn icon" id="bFwd1" title="Forward 1 frame (→)"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M15 5h2v14h-2zM5 5v14l9-7z"/></svg></button>
+      <button class="btn icon" id="bFwd10" title="Forward 10 frames (Shift+→)"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 5v14l9-7zM3 5v14l9-7z"/></svg></button>
+      <span class="readout num" id="readout">Frame <b>–</b></span>
+      <span class="sep"></span>
+      <label class="inline">Speed
+        <select id="speedSel"><option value="0.1">0.1×</option><option value="0.25" selected>0.25×</option><option value="0.5">0.5×</option><option value="1">1×</option></select>
+      </label>
+      <label class="inline" title="Frames per second of the recording. Auto-detected; change it if it's wrong (e.g. slow-mo).">FPS
+        <select id="fpsSel"></select>
+      </label>
+      <span class="spacer"></span>
+      <span class="toggles">
+        <label class="toggle"><input type="checkbox" id="tSkel" checked>Skeleton</label>
+        <label class="toggle"><input type="checkbox" id="tAngles" checked>Angles</label>
+        <label class="toggle"><input type="checkbox" id="tOthers">Others</label>
+        <label class="toggle"><input type="checkbox" id="tBall" checked>Ball</label>
+      </span>
+    </div>
+
+    <div class="timeline-wrap"><canvas id="timeline" aria-label="Timeline"></canvas></div>
+
+    <div class="charts empty" id="charts">
+      <div class="chart-card">
+        <div class="chart-head"><h3>Height above the floor <span class="sub" id="chartHSub">(m, approx.)</span></h3><div class="legend" id="legendH"></div></div>
+        <div class="chart-body"><canvas id="chartH"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-head"><h3>Joint angles <span class="sub">(°, 180 = straight)</span></h3><div class="legend" id="legendA"></div></div>
+        <div class="chart-body"><canvas id="chartA"></canvas></div>
+      </div>
+    </div>
+  </section>
+
+  <aside class="side">
+    <section class="panel" id="pAnalyze">
+      <h2><span class="step">1</span>Analyze body</h2>
+      <p>Finds the hitter's joints in every frame, then auto-detects take-off, contact and landing.</p>
+      <div class="row">
+        <label class="field">Pose model
+          <select id="modelSel">
+            <option value="lite">Lite (fastest)</option>
+            <option value="full" selected>Full (recommended)</option>
+            <option value="heavy">Heavy (most accurate, slow)</option>
+          </select>
+        </label>
+        <label class="field">Frames to analyze
+          <select id="rangeSel">
+            <option value="all">Whole video</option>
+            <option value="around">2 s around current frame</option>
+          </select>
+        </label>
+      </div>
+      <div class="row">
+        <button class="btn primary" id="btnAnalyze" disabled>Analyze video</button>
+        <button class="btn" id="btnPick" disabled title="Click this, then click the person who is hitting">Pick hitter</button>
+      </div>
+      <div class="status" id="analyzeStatus">Open a video to start.</div>
+    </section>
+
+    <section class="panel" id="pResults">
+      <h2>Results</h2>
+      <div id="results"><div class="empty-state">Results appear here after you analyze a video.</div></div>
+    </section>
+
+    <section class="panel" id="pEvents">
+      <h2><span class="step">2</span>Key moments</h2>
+      <p>Auto-detected. Check each one. Step to the right frame and press <b>Set here</b> (or the key shown) to correct it.</p>
+      <div class="events" id="events"></div>
+      <div class="row"><button class="btn small" id="btnRedetect" disabled>Re-detect automatically</button></div>
+    </section>
+
+    <section class="panel" id="pBall">
+      <h2><span class="step">3</span>Ball</h2>
+      <p>For ball speed: turn on <b>Mark ball</b> and click the ball in 2–3 frames just after contact. <b>Track</b> follows a clearly visible ball automatically (it stops at contact). Right-click removes a point.</p>
+      <div class="row">
+        <button class="btn" id="btnBallMode" disabled>Mark ball <small>(B)</small></button>
+        <button class="btn" id="btnTrackBack" disabled title="Track the ball backwards from this frame">← Track</button>
+        <button class="btn" id="btnTrackFwd" disabled title="Track the ball forwards from this frame">Track →</button>
+        <button class="btn small" id="btnBallClear" disabled>Clear</button>
+      </div>
+      <div class="row"><span class="hint" style="min-width:64px">Ball size</span><input type="range" id="ballSize" min="3" max="80" value="14"><span class="hint num" id="ballSizeVal">14 px</span></div>
+      <div class="status" id="ballStatus">No ball points yet.</div>
+    </section>
+
+    <section class="panel" id="pSetup">
+      <h2><span class="step">4</span>Player &amp; camera</h2>
+      <div class="row">
+        <label class="field"><span id="lblHeight">Player height (cm)</span><input type="number" id="inHeight" min="50" max="250" step="1"></label>
+        <label class="field" title="Highest point you can touch standing flat-footed with one arm up"><span id="lblReach">Standing reach (cm)</span><input type="number" id="inReach" min="80" max="320" step="1" placeholder="optional"></label>
+      </div>
+      <div class="row">
+        <label class="field">Camera
+          <select id="cameraSel">
+            <option value="handheld">Handheld / any angle</option>
+            <option value="tripod">Tripod, side view</option>
+          </select>
+        </label>
+        <label class="field">Units
+          <select id="unitsSel"><option value="metric">Metric (cm, km/h)</option><option value="imperial">Imperial (in, mph)</option></select>
+        </label>
+      </div>
+      <div class="row">
+        <label class="field">Scale from
+          <select id="scaleSel">
+            <option value="body">Player height (automatic)</option>
+            <option value="line">Reference line I draw</option>
+          </select>
+        </label>
+      </div>
+      <div class="row" id="lineRow" hidden>
+        <label class="field">Line length
+          <select id="lineSel">
+            <option value="2.43">Men's net height: 2.43 m</option>
+            <option value="2.24">Women's net height: 2.24 m</option>
+            <option value="2.35">Boys' U16 net: 2.35 m</option>
+            <option value="3">Attack line to net: 3 m</option>
+            <option value="9">Court width: 9 m</option>
+            <option value="custom">Custom…</option>
+          </select>
+        </label>
+        <label class="field" id="customLenWrap" hidden>Metres<input type="number" id="inLineLen" min="0.1" step="0.01" value="1"></label>
+        <button class="btn" id="btnDrawLine" disabled>Draw line</button>
+      </div>
+      <div class="status" id="scaleStatus"></div>
+    </section>
+
+    <details class="panel">
+      <summary>Keyboard shortcuts</summary>
+      <div class="kbd-list">
+        <kbd>Space</kbd><span>Play / pause</span>
+        <kbd>← →</kbd><span>Step one frame (hold Shift for 10)</span>
+        <kbd>A T C L</kbd><span>Set approach start / take-off / contact / landing here</span>
+        <kbd>B</kbd><span>Mark-ball mode</span>
+        <kbd>Del</kbd><span>Remove ball point on this frame</span>
+        <kbd>Wheel</kbd><span>Zoom the video, drag to pan, double-click to reset</span>
+        <kbd>Esc</kbd><span>Leave the current mode</span>
+      </div>
+    </details>
+  </aside>
+</main>
+
+<script src="app/analysis.js"></script>
+<script src="app/app.js"></script>
+</body>
+</html>
